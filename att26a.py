@@ -1,120 +1,174 @@
 import serial
+import threading
 import time
+import queue
+import math
 
-def shift7_left(b):
-    return ((b << 1) & 0x7E) | ((b & 0x40) >> 6)
+LED_OFF = 0x0
+LED_BLINK1 = 0x8
+LED_BLINK2 = 0xD
+LED_ON = 0xF
 
-def shift7_right(b):
-    return ((b & 0x7E) >> 1) | ((b & 0x01) << 6)
+LED_MODES = (LED_OFF, LED_BLINK1, LED_BLINK2, LED_ON)
 
-#for i in range(0,127):
-#    if i != att26a.shift7_left(att26a.shift7_right(i)):
-#        print("FAIL at %d" % i)
+MSG_KA = 0xFF # Keep Alive
+MSG_ACK = 0xFD # Acknowledge
 
-def open_att26a(devname):
-    return serial.Serial(devname, baudrate=10752,
-                         bytesize=serial.EIGHTBITS, parity=serial.PARITY_ODD,
-                         stopbits=serial.STOPBITS_ONE)
+class ATT26A(object):
 
-def reset_att26a(ser):
-    pass
+    @staticmethod
+    def _open_dev(devname):
+        return serial.Serial(devname, baudrate=10752, #write_timeout=(100/1000),
+                             bytesize=serial.EIGHTBITS, parity=serial.PARITY_ODD,
+                             stopbits=serial.STOPBITS_ONE)
 
-def prepare_msg_frame(msg):
-    if len(msg) > 15:
-        raise ValueError("msg may not be longer than 15 bytes.")
-    h = 0x7F
-    for b in msg[1:]:
-        h ^= b
-    return msg + bytes([h]) + b'\xff'
+    @staticmethod
+    def _shift7_left(b):
+        return ((b << 1) & 0x7E) | ((b & 0x40) >> 6)
 
-def read_btn_loop(ser):
-    while True:
-        buf = ser.read_all().replace(b'\xff', b'')
-        if len(buf):
-            for b in buf:
-                bfixed = shift7_right(b)
-                print("%s (%d) => %s (%d)" % (hex(b)[2:].zfill(2), b, hex(bfixed)[2:].zfill(2), bfixed))
-        time.sleep(0.2)
+    @staticmethod
+    def _shift7_right(b):
+        return ((b & 0x7E) >> 1) | ((b & 0x01) << 6)
 
-def print_all_data(ser):
-    buf = b''
-    got_any_data = False
-    while True:
-        tmp = ser.read_all()
-        buf += tmp.replace(b'\xff', b'')
-        if len(tmp):
-            got_any_data = True
-        if len(tmp) < 500:
-            break
-    print("PRE", ":".join((hex(b)[2:] for b in buf)), "" if got_any_data else "NODATA")
+    def __init__(self, devname, *, verbose=False):
+        #self._btn_handler = btn_handler
+        self._verbose = verbose
+        self._ser = ATT26A._open_dev(devname)
+        self.reset()
+        self._btnq = queue.Queue(100)
+        self.__do_recvthread = True
+        self._recvthread = threading.Thread(daemon=True, target=self.__recvthread_func)
+        self._recvthread.start()
 
+    def __recvthread_func(self):
+        while(self.__do_recvthread):
+            data = self._ser.read(1) # Blocks
+            if data[0] in (MSG_KA, MSG_ACK):
+                continue
+            new_btn = ATT26A._shift7_right(data[0])
 
-def tx(ser, msg, *, sync=True):
-    if len(msg) == 0:
-        raise ValueError("Message must be at least one byte long.")
-    if len(msg) >= 16:
-        raise ValueError("Message must be shorter than 16 bytes.")
-    if b'\xFF' in msg:
-        raise ValueError("Message may not contain a byte of value 0xFF.")
+            if self._verbose:
+                print("%s (%d) => %s (%d)" % (hex(data[0])[2:].zfill(2), data[0],
+                                              hex(new_btn)[2:].zfill(2), new_btn))
 
-    print_all_data(ser)
-    outmsg = prepare_msg_frame(msg)
-    print(":".join((hex(b)[2:] for b in outmsg)))
-    ser.write(outmsg)
-    if sync:
-        time.sleep(0.6)
-    res = ser.read_all().replace(b'\xff', b'')
-    print("RES", ":".join((hex(b)[2:] for b in res)))
+            self._btnq.put(new_btn)
+            #if self._btn_handler:
+            #    using_last_btn = True
+            #    try:
+            #        last_btn = self._btnq.get(block=False)
+            #    except queue.Empty as e:
+            #        using_last_btn = False
+            #        print("queue empty")
+            #
+            #    if using_last_btn:
+            #        self._btn_handler(last_btn)
+            #        self._btnq.put(new_btn)
+            #    else:
+            #        self._btn_handler(new_btn)
+            #else:
+            #    self._btnq.put(new_btn)
 
+    def get_btn_press(self, block=True, timeout=None):
+        return self._btnq.get(block=block, timeout=timeout)
 
-# Returns 1 or 2 bytes.
-def get_high_led_status(ser, XX):
-    # A520:XX
-    if 100 > XX or XX >= 120:
-        raise ValueError("XX must be 100 <= XX < 120; not %d" % XX)
+    def reset(self):
+        self._ser.dtr = False
+        time.sleep(0.1)
+        self._ser.dtr = True
 
-    tx(ser, b'\xA5\x20' + bytes([shift7_left(XX)]))
+    @staticmethod
+    def __prepare_msg_frame(msg):
+        if len(msg) > 15:
+            raise ValueError("msg may not be longer than 15 bytes.")
+        h = 0x7F
+        for b in msg[1:]:
+            h ^= b
+        return msg + bytes([h]) + b'\xff'
 
-# Unknown. No Return.
-def msg_8507_XXYY_DATA(ser, XX, YY, DATA):
-    # 8507:XXYY:DATA
-    # XX is start ledID
-    # YY some length
-    if XX > 100:
-        raise ValueError("XX must be less than 100; not %d" % XX)
-    #if YY == 71:
-    #    raise ValueError("YY can not be 71.")
-    #if len(DATA) > 11:
-    #    raise ValueError("DATA may not be longer than 11 bytes.")
+    def _tx(self, msg, *, sync=True):
+        if len(msg) == 0:
+            raise ValueError("Message must be at least one byte long.")
+        if len(msg) >= 16:
+            raise ValueError("Message must be shorter than 16 bytes.")
+        if b'\xFF' in msg:
+            raise ValueError("Message may not contain a byte of value 0xFF.")
 
-    #YY = shift7_left(YY)
-    if YY != 70:
-        YY -= 1
-        if YY == -1: #8 bit rollover
-            YY = 0xFF
+        outmsg = ATT26A.__prepare_msg_frame(msg)
+        if(self._verbose):
+            print(":".join((hex(b)[2:] for b in outmsg)))
+        self._ser.write(outmsg)
 
-    tx(ser, b'\x85\x07' + bytes([shift7_left(XX),
-                                 YY]) + DATA)
+    # Only works for setting on/off, not for setting blink states.
+    def set_led_range_state(self, start_ledid, states_on_off):
+        if start_ledid > 100 or start_ledid < 0:
+            raise ValueError("start_ledid must be between 0 and 99; not %d" % start_ledid)
 
-#Sets light state. No Return.
-def set_led_state(ser, state, ledID):
-    # 852X:YY
-    # X sets the state for the led number YY
-    if state not in (0x0, 0x8, 0xD, 0xF): #translates to 0-3
-        raise ValueError("state can either be 0x0, 0x8, 0xD, or 0xF")
-    if ledID >= 120:
-        raise ValueError("ledID must be smaller than 120; not %d." % ledID)
+        num_leds = len(states_on_off)
+        if num_leds == 0:
+            raise ValueError("states_on_off can not be empty.")
+        if num_leds == 71:
+            raise ValueError("The device does not support setting 71 leds at once. Either send "
+                             "multiple requests, or write 72 or more values.")
+        if num_leds > 77:
+            raise ValueError("Only up to 77 leds may be set at a time, not %d" % num_leds)
 
-    tx(ser, b'\x85' + bytes([0x20 | state, shift7_left(ledID)]), sync=False)
+        if num_leds != 70:
+            num_leds -= 1
 
-def factory_test_mode_enable(ser, enable):
-    if enable:
-        tx(ser, b'\x85\x30\x4F')
-    else:
-        tx(ser, b'\x85\x10\x6F')
+        data = bytearray(math.ceil(len(states_on_off)/7.00))
+        # Top bit always 0, up to 7 leds per byte, high bit to low bit.
+        for i, val in enumerate(states_on_off):
+            data[i//7] |= (bool(val) << (6-(i%7)))
 
-def set_IO_enable(ser, enable):
-    if enable:
-        tx(ser, b'\x85\x40\x3F')
-    else:
-        tx(ser, b'\x85\x50\x2F')
+        self._tx(b'\x85\x07' + bytes([ATT26A._shift7_left(start_ledid),
+                                      num_leds]) + data)
+
+    def set_led_state(self, state, ledID):
+        # 852X:YY
+        # X sets the state for the led number YY
+        if state not in (LED_OFF, LED_BLINK1, LED_BLINK2, LED_ON): #translates to 0-3
+            raise ValueError("state can either be 0x0, 0x8, 0xD, or 0xF, not %s" % hex(state))
+        if ledID >= 120:
+            raise ValueError("ledID must be smaller than 120; not %d." % ledID)
+
+        self._tx(b'\x85' + bytes([0x20 | state, ATT26A._shift7_left(ledID)]), sync=False)
+
+    def set_led_off(self, ledID):
+        self.set_led_state(LED_OFF, ledID)
+
+    def set_led_blink1(self, ledID):
+        self.set_led_state(LED_BLINK1, ledID)
+
+    def set_led_blink2(self, ledID):
+        self.set_led_state(LED_BLINK2, ledID)
+
+    def set_led_on(self, ledID):
+        self.set_led_state(LED_ON, ledID)
+
+    #def set_all_led_state(self, state):
+    #    self.set_led_range_state(0, 50, state)
+
+    def set_factory_test_mode_enable(self, enable):
+        if enable:
+            self._tx(b'\x85\x10\x6F')
+        else:
+            self._tx(b'\x85\x30\x4F')
+
+    def set_IO_enable(self, enable):
+        if enable:
+            self._tx(b'\x85\x40\x3F')
+        else:
+            self._tx(b'\x85\x50\x2F')
+
+    # Read the led state of any led from 200 to 120. Returns 1 or 2
+    # bytes. This function is not even that useful, as it only works
+    # for the bottom 20 lights.  Since this is the only function that
+    # returns a value, and it is useless, there is no need to handle
+    # return values. Just keep a local buffer if you need to track the
+    # led state.
+    #def get_high_led_status(ser, XX):
+    #    # A520:XX
+    #    if 100 > XX or XX >= 120:
+    #        raise ValueError("XX must be 100 <= XX < 120; not %d" % XX)
+    #
+    #    tx(ser, b'\xA5\x20' + bytes([ATT26A._shift7_left(XX)]))
