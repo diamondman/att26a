@@ -11,6 +11,7 @@ def light_bright(devname, verbose):
 
     while True:
         btn = led_board.get_btn_press()
+        print(btn)
         led_map[btn] = not led_map[btn]
         state = att26a.LED_ON if led_map[btn] else att26a.LED_OFF
         led_board.set_led_state(state, btn)
