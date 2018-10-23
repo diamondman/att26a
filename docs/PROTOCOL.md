@@ -43,13 +43,13 @@ The encoded form of this data is sent down the wire, so the sender has to encode
 
 The encoding and decoding process is a circular one bit shift on a 7 bit integer, so **a 8 bit integer shift won't work. A custom 7 bit circular left/right shift is required.**
 
-**Encoding Pseudo code (7 bit left shift):**
+**Encoding Pseudo code (1 bit left shift for 7 bit integer):**
 
     # BTN_MESSAGE << BTN_ID
     # 0b0ABCDEFG  => 0b0BCDEFGA
     ((b << 1) & 0x7E) | ((b & 0x40) >> 6)
 
-**Decoding Pseudo Code (7 bit right shift):**
+**Decoding Pseudo Code (1 bit right shift for 7 bit integer):**
 
     # BTN_MESSAGE >> BTN_ID
     # 0b0ABCDEFG  => 0b0GABCDEF
