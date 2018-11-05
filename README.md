@@ -6,4 +6,4 @@ The AT&T 26A Direct Extension Selector Console is part of the AT&T 302 [Attendan
 
 Luckily, the 26A can be picked up for a much cheaper $20 (at least at the time of writing). This price point, and a simple protocol, makes the 26A a good option for various hobby projects needing a grid of buttons and lights.
 
-This project exists to document the 26A hardware/protocol, and provide a library for controlling it.
+This project exists to [document the 26A hardware/protocol](./docs/README.md), and provide a library for controlling 
