@@ -8,15 +8,13 @@ def random_noise(devname, verbose):
     import att26a
     import random
     import signal
-    import threading
-
-    breakloop = threading.Event()
-    def signal_handler(sig, frame):
-        breakloop.set()
-    signal.signal(signal.SIGINT, signal_handler)
 
     with att26a.ATT26A(devname, verbose=verbose) as led_board:
-        while not breakloop.is_set():
+        def signal_handler(sig, frame):
+            led_board.close()
+        signal.signal(signal.SIGINT, signal_handler)
+
+        while led_board.is_open:
             led = random.randint(0, 119)
             state = random.choice((att26a.LED_OFF, att26a.LED_ON))
             led_board.set_led_state(state, led)

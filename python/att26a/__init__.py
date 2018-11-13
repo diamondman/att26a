@@ -30,6 +30,8 @@ import time
 import queue
 import math
 
+from .interruptablequeue import InterruptableQueue, QueueInterruptException
+
 LED_OFF = 0x0
 LED_BLINK1 = 0x8
 LED_BLINK2 = 0xD
@@ -93,6 +95,7 @@ class ATT26A(object):
         if self.__is_open:
             self.__do_recvthread = False
             self.__recvthread.join(0.5)
+            self.__btnq.interrupt_all_consumers()
             self.__ser.close()
         self.__is_open = False
 
@@ -109,7 +112,7 @@ class ATT26A(object):
             self.__recvthread.wait(0.5)
 
         # Clear out the queues
-        self.__btnq = queue.Queue(100)
+        self.__btnq = InterruptableQueue(100)
         self.__retq = queue.Queue()
 
         # Exit device reset

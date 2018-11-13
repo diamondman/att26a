@@ -7,24 +7,22 @@ sys.path.append(join(dirname(__file__), "..")) # Enable importing from parent di
 def light_bright2(devname, verbose):
     import att26a
     import signal
-    import threading
-
-    breakloop = threading.Event()
-    def signal_handler(sig, frame):
-        breakloop.set()
-    signal.signal(signal.SIGINT, signal_handler)
 
     with att26a.ATT26A(devname, verbose=verbose) as led_board:
+        def signal_handler(sig, frame):
+            led_board.close()
+        signal.signal(signal.SIGINT, signal_handler)
+
         led_board.set_led_state(att26a.LED_OFF, 100)
         led_board.set_led_state(att26a.LED_BLINK1, 101)
         led_board.set_led_state(att26a.LED_BLINK2, 102)
         led_board.set_led_state(att26a.LED_ON, 103)
-        mode = 3
 
-        while not breakloop.is_set():
+        mode = 3
+        while led_board.is_open:
             try:
-                btn = led_board.get_btn_press(block=True, timeout=0.2)
-            except att26a.Att26AButtonTimeoutError as e:
+                btn = led_board.get_btn_press()
+            except att26a.QueueInterruptException as e:
                 continue
 
             if btn >= 0 and btn <= 99:
