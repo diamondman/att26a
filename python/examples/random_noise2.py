@@ -5,16 +5,24 @@ from os.path import dirname, join
 sys.path.append(join(dirname(__file__), "..")) # Enable importing from parent directory
 
 def random_noise2(devname, verbose):
-    import random
     import att26a
-    led_board = att26a.ATT26A(devname, verbose=verbose)
-    led_map = [False] * 120
-    
-    while True:
-        led = random.randint(0, len(led_map)-1)
-        led_map[led] = not led_map[led]
-        state = att26a.LED_ON if led_map[led] else att26a.LED_OFF
-        led_board.set_led_state(state, led)
+    import random
+    import signal
+    import threading
+
+    breakloop = threading.Event()
+    def signal_handler(sig, frame):
+        breakloop.set()
+    signal.signal(signal.SIGINT, signal_handler)
+
+    with att26a.ATT26A(devname, verbose=verbose) as led_board:
+        led_map = [False] * 120
+
+        while not breakloop.is_set():
+            led = random.randint(0, len(led_map)-1)
+            led_map[led] = not led_map[led]
+            state = att26a.LED_ON if led_map[led] else att26a.LED_OFF
+            led_board.set_led_state(state, led)
 
 if __name__ == "__main__":
     import argparse

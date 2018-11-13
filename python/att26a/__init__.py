@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
 from __future__ import print_function
@@ -40,6 +40,24 @@ LED_MODES = (LED_OFF, LED_BLINK1, LED_BLINK2, LED_ON)
 MSG_KA = 0xFF # Keep Alive
 MSG_ACK = 0xFD # Acknowledge
 
+class Att26AError(Exception):
+    pass
+
+class Att26ATimeoutError(Att26AError):
+    pass
+
+class Att26AButtonTimeoutError(Att26AError):
+    pass
+
+class DriverNotOpenError(Att26AError):
+    pass
+
+class IncorrectResponseError(Att26AError):
+    pass
+
+class Att26AIOError(Att26AError):
+    pass
+
 class ATT26A(object):
     """AT&T 26A Direct Extension Selector Console Driver.
 
@@ -53,41 +71,84 @@ class ATT26A(object):
 
     def __init__(self, devname, *, verbose=False):
         self._verbose = verbose
-        self._ser = ATT26A._open_dev(devname)
+
+        self.__is_open = True
+        self.__do_recvthread = False
+        self.__recvthread = None
+        self.__btnq = None
+        self.__retq = None
+
+        self.__ser = serial.Serial(devname, baudrate=10752, write_timeout=0.1,
+                                  bytesize=serial.EIGHTBITS, parity=serial.PARITY_ODD,
+                                  stopbits=serial.STOPBITS_ONE)
         self.reset()
-        self._btnq = queue.Queue(100)
-        self.__do_recvthread = True
-        self._recvthread = threading.Thread(daemon=True, target=self.__recvthread_func)
-        self._recvthread.start()
 
-    def __recvthread_func(self):
-        while(self.__do_recvthread):
-            data = self._ser.read(1) # Blocks
-            if data[0] in (MSG_KA, MSG_ACK):
-                continue
-            new_btn = ATT26A._shift7_right(data[0])
+    def __enter__(self):
+        return self
 
-            if self._verbose:
-                print("%s (%d) => %s (%d)" % (hex(data[0])[2:].zfill(2), data[0],
-                                              hex(new_btn)[2:].zfill(2), new_btn))
+    def __exit__(self, exc_type, exc_value, traceback):
+        self.close()
 
-            self._btnq.put(new_btn)
-
-    def get_btn_press(self, block=True, timeout=None):
-        """Read a single button press off of the button event queue.
-
-        Currently, the 'block' and 'timeout' parameters are passed
-        directly to queue.Queue.get. Consult the appropriate
-        documentation for their functions.
-
-        """
-        return self._btnq.get(block=block, timeout=timeout)
+    def close(self):
+        if self.__is_open:
+            self.__do_recvthread = False
+            self.__recvthread.join(0.5)
+            self.__ser.close()
+        self.__is_open = False
 
     def reset(self):
         """Execute a complete power on reset of the 26A."""
-        self._ser.dtr = False
+
+        # Force the device into reset
+        self.__ser.dtr = False
         time.sleep(0.1)
-        self._ser.dtr = True
+
+        # Terminate the reader thread
+        self.__do_recvthread = False
+        if self.__recvthread is not None:
+            self.__recvthread.wait(0.5)
+
+        # Clear out the queues
+        self.__btnq = queue.Queue(100)
+        self.__retq = queue.Queue()
+
+        # Exit device reset
+        self.__ser.dtr = True
+
+        # (Re)start the reader thread
+        self.__do_recvthread = True
+        self.__recvthread = threading.Thread(daemon=True, target=self.__recvthread_func)
+        self.__recvthread.start()
+
+
+    def __recvthread_func(self):
+        retdata = bytearray()
+        while(self.__do_recvthread):
+            try:
+                data_raw = self.__ser.read(1) # Blocks
+            except serial.serialutil.SerialException as e:
+                time.sleep(1)
+                print("READER ERROR:", e)
+                continue
+
+            data = data_raw[0]
+            if (data & 0x80) == 0x00:
+                self._handle_button_press(ATT26A._shift7_right(data))
+            elif data == MSG_KA:
+                pass #TODO: maybe detect hardware timeout?
+            elif data == MSG_ACK:
+                if self._verbose:
+                    print("retdata: " + ':'.join('{:02x}'.format(x) for x in retdata))
+                self.__retq.put(bytes(retdata))
+                retdata.clear()
+            else:
+                retdata.append(data)
+
+    def _handle_button_press(self, id):
+        if self._verbose:
+            print("%s btn %d pressed." % (type(self).__name__, id))
+
+        self.__btnq.put(id)
 
     @staticmethod
     def __prepare_msg_frame(msg):
@@ -99,6 +160,9 @@ class ATT26A(object):
         return msg + bytes([h]) + b'\xff'
 
     def _tx(self, msg):
+        if not self.is_open:
+            raise DriverNotOpenError()
+
         if len(msg) == 0:
             raise ValueError("Message must be at least one byte long.")
         if len(msg) >= 16:
@@ -108,8 +172,32 @@ class ATT26A(object):
 
         outmsg = ATT26A.__prepare_msg_frame(msg)
         if(self._verbose):
-            print(":".join((hex(b)[2:] for b in outmsg)))
-        self._ser.write(outmsg)
+            print("TX:" + ":".join((hex(b)[2:] for b in outmsg)))
+
+        #time.sleep(1)
+        try:
+            self.__ser.write(outmsg)
+        except serial.SerialTimeoutException as e:
+            raise Att26ATimeoutError("Timeout sending message.")
+        except serial.serialutil.SerialException as e:
+            raise Att26AIOError("")
+
+        try:
+            return self.__retq.get(block=True, timeout=0.1)
+        except queue.Empty:
+            raise Att26ATimeoutError("Timeout waiting for response.")
+
+    def get_btn_press(self, block=True, timeout=None):
+        """Read a single button press off of the button event queue.
+
+        Currently, the 'block' and 'timeout' parameters are passed
+        directly to queue.Queue.get. Consult the appropriate
+        documentation for their functions.
+        """
+        try:
+            return self.__btnq.get(block=block, timeout=timeout)
+        except queue.Empty as e:
+            raise Att26AButtonTimeoutError()
 
     def set_led_range_state(self, start_ledid, states_on_off):
         """Set a range of LEDs on the 26A arbitrarily to ON or OFF (no blink).
@@ -131,9 +219,8 @@ class ATT26A(object):
             start_ledid (int): ID of first LED in the range.
             code (:obj:`list` of :obj:`bool`): List of states to
                 set. Max length 77. Length 71 unsupported.
-
         """
-        
+
         if start_ledid > 99 or start_ledid < 0:
             raise ValueError("start_ledid must be between 0 and 99; not %d" % start_ledid)
 
@@ -165,14 +252,15 @@ class ATT26A(object):
                 Supports att26a.LED_OFF, att26a.LED_BLINK1,
                 att26a.LED_BLINK2, and att26a.LED_ON.
             ledID (int): ID of the LED to set the state of.
-
         """
         if state not in (LED_OFF, LED_BLINK1, LED_BLINK2, LED_ON): #translates to 0-3
             raise ValueError("state can either be 0x0, 0x8, 0xD, or 0xF, not %s" % hex(state))
         if ledID >= 120:
             raise ValueError("ledID must be smaller than 120; not %d." % ledID)
 
-        self._tx(b'\x85' + bytes([0x20 | state, ATT26A._shift7_left(ledID)]))
+        ret = self._tx(b'\x85' + bytes([0x20 | state, ATT26A._shift7_left(ledID)]))
+        if ret:
+            raise IncorrectResponseError("set_led_state expects no return data, got %s" % ret)
 
     def set_led_off(self, ledID):
         """Set an individual LED on the 26A to the OFF state.
@@ -218,7 +306,6 @@ class ATT26A(object):
 
         Args:
             enable (bool): Weather to turn factory test mode on.
-
         """
         if enable:
             self._tx(b'\x85\x10\x6F')
@@ -241,31 +328,48 @@ class ATT26A(object):
 
         Args:
             enable (bool): Weather to enable or disable the IO contoller.
-
         """
         if enable:
             self._tx(b'\x85\x40\x3F')
         else:
             self._tx(b'\x85\x50\x2F')
 
-    # Read the led state of any led from 200 to 120. Returns 1 or 2
-    # bytes. This function is not even that useful, as it only works
-    # for the bottom 20 lights.  Since this is the only function that
-    # returns a value, and it is useless, there is no need to handle
-    # return values. Just keep a local buffer if you need to track the
-    # led state.
-    #def get_high_led_status(ser, XX):
-    #    # A520:XX
-    #    if 100 > XX or XX >= 120:
-    #        raise ValueError("XX must be 100 <= XX < 120; not %d" % XX)
-    #
-    #    tx(ser, b'\xA5\x20' + bytes([ATT26A._shift7_left(XX)]))
+    def get_led_status(self, ledID):
+        """Set the state of an individual led on the bottom two rows.
 
-    @staticmethod
-    def _open_dev(devname):
-        return serial.Serial(devname, baudrate=10752, #write_timeout=(100/1000),
-                             bytesize=serial.EIGHTBITS, parity=serial.PARITY_ODD,
-                             stopbits=serial.STOPBITS_ONE)
+        This function is not terribly useful. It is recommended that
+        you keep track of the state of the 26A's LEDs yourself.
+
+        Args:
+            ledID (int): ID of the LED to get the state of.
+                Range: 100 <= 'ledID' <= 119
+        """
+
+        if 100 > ledID or ledID >= 120:
+            raise ValueError("ledID must be 100 <= ledID < 120; not %d" % ledID)
+
+        ret = self._tx(b'\xA5\x20' + bytes([ATT26A._shift7_left(ledID)]))
+
+        if (ret[0] & 0x08):
+            ret_id = (ret[1] & 0x1F) + 100
+        else:
+            ret_id = (ret[0] & 0x07) + 100
+
+        if ret_id != ledID:
+            raise IncorrectResponseError("Wrong ID; Got %d, expected %d." % (ret_id, ledID))
+
+        return LED_MODES[(ret[0] >> 4) & 3]
+
+    @property
+    def verbose(self):
+        return self._verbose
+    @verbose.setter
+    def verbose(self, value):
+        self._verbose = bool(value)
+
+    @property
+    def is_open(self):
+        return self.__is_open
 
     @staticmethod
     def _shift7_left(b):
