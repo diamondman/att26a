@@ -17,12 +17,22 @@ __title__ = 'att26a'
 __version__ = '0.0.1'
 __author__ = 'Jessy Diamond Exum'
 
-__ALL__ = ['LED_OFF',
-           'LED_BLINK1',
-           'LED_BLINK2',
-           'LED_ON',
-           'LED_MODES',
-           'ATT26A']
+__ALL__ = [
+    'LED_OFF',
+    'LED_BLINK1',
+    'LED_BLINK2',
+    'LED_ON',
+    'LED_MODES',
+    'ATT26A',
+    'DriverClosedError',
+    'DriverShuttingDownError',
+    'Att26AProtocolError',
+    'CommandTimeoutError',
+    'IncorrectResponseError',
+    'Att26AIOError',
+    'CanNotOpenDeviceError',
+    'ButtonTimeoutError',
+]
 
 import serial
 import threading
