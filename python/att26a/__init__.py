@@ -30,7 +30,7 @@ import time
 import queue
 import math
 
-from .interruptablequeue import InterruptableQueue, QueueInterruptException
+from . import interruptablequeue
 
 LED_OFF = 0x0
 LED_BLINK1 = 0x8
@@ -45,19 +45,31 @@ MSG_ACK = 0xFD # Acknowledge
 class Att26AError(Exception):
     pass
 
-class Att26ATimeoutError(Att26AError):
+# Driver State Unusable Exceptions
+class DriverClosedError(Att26AError):
     pass
 
-class Att26AButtonTimeoutError(Att26AError):
+class DriverShuttingDownError(DriverClosedError):
     pass
 
-class DriverNotOpenError(Att26AError):
+# Protocol Exceptions
+class Att26AProtocolError(Att26AError):
     pass
 
-class IncorrectResponseError(Att26AError):
+class CommandTimeoutError(Att26AProtocolError):
     pass
 
+class IncorrectResponseError(Att26AProtocolError):
+    pass
+
+# Other Exceptions
 class Att26AIOError(Att26AError):
+    pass
+
+class CanNotOpenDeviceError(Att26AError):
+    pass
+
+class ButtonTimeoutError(Att26AError):
     pass
 
 class ATT26A(object):
@@ -80,22 +92,34 @@ class ATT26A(object):
         self.__btnq = None
         self.__retq = None
 
-        self.__ser = serial.Serial(devname, baudrate=10752, write_timeout=0.1,
-                                  bytesize=serial.EIGHTBITS, parity=serial.PARITY_ODD,
-                                  stopbits=serial.STOPBITS_ONE)
+        try:
+            self.__ser = serial.Serial(devname, baudrate=10752, write_timeout=0.1,
+                                       bytesize=serial.EIGHTBITS, parity=serial.PARITY_ODD,
+                                       stopbits=serial.STOPBITS_ONE)
+        except serial.serialutil.SerialException as e:
+            raise CanNotOpenDeviceError("The 'devname' provided could not be opened: '%s'"%devname)
+
         self.reset()
 
     def __enter__(self):
+        if not self.__is_open:
+            raise DriverClosedError("This device is already closed, create a new one instead "
+                                    "of re-opening this one.")
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
         self.close()
 
     def close(self):
+        self._close()
+
+    def _close(self, *, dojoin=True):
         if self.__is_open:
             self.__do_recvthread = False
-            self.__recvthread.join(0.5)
+            self.__retq.interrupt_all_consumers()
             self.__btnq.interrupt_all_consumers()
+            if dojoin:
+                self.__recvthread.join(0.5)
             self.__ser.close()
         self.__is_open = False
 
@@ -112,8 +136,8 @@ class ATT26A(object):
             self.__recvthread.wait(0.5)
 
         # Clear out the queues
-        self.__btnq = InterruptableQueue(100)
-        self.__retq = queue.Queue()
+        self.__btnq = interruptablequeue.InterruptableQueue(100)
+        self.__retq = interruptablequeue.InterruptableQueue()
 
         # Exit device reset
         self.__ser.dtr = True
@@ -130,22 +154,27 @@ class ATT26A(object):
             try:
                 data_raw = self.__ser.read(1) # Blocks
             except serial.serialutil.SerialException as e:
-                time.sleep(1)
-                print("READER ERROR:", e)
-                continue
-
-            data = data_raw[0]
-            if (data & 0x80) == 0x00:
-                self._handle_button_press(ATT26A._shift7_right(data))
-            elif data == MSG_KA:
-                pass #TODO: maybe detect hardware timeout?
-            elif data == MSG_ACK:
                 if self._verbose:
-                    print("retdata: " + ':'.join('{:02x}'.format(x) for x in retdata))
-                self.__retq.put(bytes(retdata))
-                retdata.clear()
-            else:
-                retdata.append(data)
+                    print("ATT26A closing due to exception on receiver thread: '%s'" % e)
+                self._close(dojoin=False)
+
+            data = data_raw[0] #TODO: Should check length first?
+            try:
+                if (data & 0x80) == 0x00:
+                    self._handle_button_press(ATT26A._shift7_right(data))
+                elif data == MSG_KA:
+                    pass #TODO: maybe detect hardware timeout?
+                elif data == MSG_ACK:
+                    if self._verbose:
+                        print("retdata: " + ':'.join('{:02x}'.format(x) for x in retdata))
+                    self.__retq.put(bytes(retdata))
+                    retdata.clear()
+                else:
+                    retdata.append(data)
+            except DriverShuttingDownError as e:
+                if self._verbose:
+                    print("Att26A receiver thread terminating due to DriverShuttingDownError")
+                break
 
     def _handle_button_press(self, id):
         if self._verbose:
@@ -164,7 +193,7 @@ class ATT26A(object):
 
     def _tx(self, msg):
         if not self.is_open:
-            raise DriverNotOpenError()
+            raise DriverClosedError()
 
         if len(msg) == 0:
             raise ValueError("Message must be at least one byte long.")
@@ -177,18 +206,19 @@ class ATT26A(object):
         if(self._verbose):
             print("TX:" + ":".join((hex(b)[2:] for b in outmsg)))
 
-        #time.sleep(1)
         try:
             self.__ser.write(outmsg)
         except serial.SerialTimeoutException as e:
-            raise Att26ATimeoutError("Timeout sending message.")
+            raise CommandTimeoutError("Timeout sending message.")
         except serial.serialutil.SerialException as e:
-            raise Att26AIOError("")
+            raise Att26AIOError()
 
         try:
             return self.__retq.get(block=True, timeout=0.1)
         except queue.Empty:
-            raise Att26ATimeoutError("Timeout waiting for response.")
+            raise CommandTimeoutError("Timeout waiting for response.")
+        except interruptablequeue.QueueInterruptException as e:
+            raise DriverShuttingDownError()
 
     def get_btn_press(self, block=True, timeout=None):
         """Read a single button press off of the button event queue.
@@ -200,7 +230,9 @@ class ATT26A(object):
         try:
             return self.__btnq.get(block=block, timeout=timeout)
         except queue.Empty as e:
-            raise Att26AButtonTimeoutError()
+            raise ButtonTimeoutError()
+        except interruptablequeue.QueueInterruptException as e:
+            raise DriverShuttingDownError()
 
     def set_led_range_state(self, start_ledid, states_on_off):
         """Set a range of LEDs on the 26A arbitrarily to ON or OFF (no blink).

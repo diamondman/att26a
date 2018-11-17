@@ -3,9 +3,9 @@
 import sys
 from os.path import dirname, join
 sys.path.append(join(dirname(__file__), "..")) # Enable importing from parent directory
+import att26a
 
 def light_bright(devname, verbose):
-    import att26a
     import signal
 
     with att26a.ATT26A(devname, verbose=verbose) as led_board:
@@ -17,12 +17,11 @@ def light_bright(devname, verbose):
         while led_board.is_open:
             try:
                 btn = led_board.get_btn_press()
-            except att26a.QueueInterruptException as e:
-                continue
-
-            led_map[btn] = not led_map[btn]
-            state = att26a.LED_ON if led_map[btn] else att26a.LED_OFF
-            led_board.set_led_state(state, btn)
+                led_map[btn] = not led_map[btn]
+                state = att26a.LED_ON if led_map[btn] else att26a.LED_OFF
+                led_board.set_led_state(state, btn)
+            except att26a.DriverShuttingDownError as e:
+                break
 
 if __name__ == "__main__":
     import argparse
@@ -32,4 +31,8 @@ if __name__ == "__main__":
                         help='the Serial Device that connects to the AT&T 26A.')
 
     args = parser.parse_args()
-    light_bright(args.devname, args.verbose)
+    try:
+        light_bright(args.devname, args.verbose)
+    except att26a.CanNotOpenDeviceError as e:
+        print("ERROR:", str(e))
+        exit(1)
