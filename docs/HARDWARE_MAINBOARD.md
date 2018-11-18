@@ -24,7 +24,6 @@
 |  9  | Reset   | 5 VDC   |
 |  10 | GND     | GND     |
 
-
 ## Components
 
 ![26A MAIN BOARD BACK ANNOTATED](./images/AT&T_26A_MAINBOARD_BACK_ANNOTATED.jpg)
@@ -47,3 +46,8 @@
 6) Power & Data Connector
 7) Column Driver Transistors
 8) Row Driver Transistors
+
+## Power Usage
+
+With all leds at full power, the 26A draws about 0.30 A of
+current. For my 5.11V usb port, that ended up being 1.53W.
