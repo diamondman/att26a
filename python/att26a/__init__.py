@@ -244,7 +244,7 @@ class ATT26A(object):
         except interruptablequeue.QueueInterruptException as e:
             raise DriverShuttingDownError()
 
-    def set_led_range_state(self, start_ledid, states_on_off):
+    def _set_led_range_state_raw(self, start_ledid, states_on_off):
         """Set a range of LEDs on the 26A arbitrarily to ON or OFF (no blink).
 
         Starting at LED ID 'start_ledid', set an LED state to ON or
@@ -288,6 +288,50 @@ class ATT26A(object):
 
         self._tx(b'\x85\x07' + bytes([ATT26A._shift7_left(start_ledid),
                                       num_leds]) + data)
+
+    def set_led_range_state(self, start_ledid, states_on_off):
+        """Set a range of LEDs on the 26A arbitrarily to ON or OFF (no blink).
+
+        Starting at LED ID 'start_ledid', set an LED state to ON or
+        OFF for each value in the 'states_of_off' array (True means
+        ON, False means OFF). This function only works on LEDs 0 to
+        99, and excludes the botton two special button rows.
+
+        If 'start_ledid' plus the length of 'states_on_off' exceed the
+        max LED ID (99), the operation continues, but wraps back
+        around to led 0.
+
+        There is a maximum of 100 LED states that can be written at a
+        time.
+
+        Args:
+            start_ledid (int): ID of first LED in the range.
+            code (:obj:`list` of :obj:`bool`): List of states to
+                set. Max length 100
+
+        """
+
+        if start_ledid > 99 or start_ledid < 0:
+            raise ValueError("start_ledid must be between 0 and 99; not %d" % start_ledid)
+
+        num_leds = len(states_on_off)
+        if num_leds == 0:
+            return
+        if num_leds > 100:
+            raise ValueError("Only up to 100 leds may be set at a time, not %d" % num_leds)
+
+        if num_leds == 71:
+            num_leds_2 = 1
+        elif num_leds > 77:
+            num_leds_2 = num_leds - 77
+        else:
+            num_leds_2 = 0
+
+        num_leds = num_leds - num_leds_2
+        self._set_led_range_state_raw(start_ledid, states_on_off[:num_leds])
+        if num_leds_2:
+            self._set_led_range_state_raw((start_ledid + num_leds) % 100,
+                                          states_on_off[num_leds:])
 
     def set_led_state(self, state, ledID):
         """Set an individual LED on the 26A to one of 4 supported states.
