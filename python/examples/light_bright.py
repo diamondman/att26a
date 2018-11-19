@@ -20,7 +20,7 @@ def light_bright(devname, verbose):
                 led_map[btn] = not led_map[btn]
                 state = att26a.LED_ON if led_map[btn] else att26a.LED_OFF
                 led_board.set_led_state(state, btn)
-            except att26a.DriverShuttingDownError as e:
+            except att26a.DriverClosedError as e:
                 break
 
 if __name__ == "__main__":

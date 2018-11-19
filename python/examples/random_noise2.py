@@ -21,12 +21,12 @@ def random_noise2(devname, verbose):
                 led_map[led] = not led_map[led]
                 state = att26a.LED_ON if led_map[led] else att26a.LED_OFF
                 led_board.set_led_state(state, led)
-            except att26a.DriverShuttingDownError as e:
+            except att26a.DriverClosedError as e:
                 break
 
 if __name__ == "__main__":
     import argparse
-    parser = argparse.ArgumentParser(description='Light up random leds')
+    parser = argparse.ArgumentParser(description='Randomly toggle LED states between OFF and ON.')
     parser.add_argument('--verbose', '-v', action='store_true', default=False)
     parser.add_argument('devname', metavar='dev', type=str,
                         help='the Serial Device that connects to the AT&T 26A.')

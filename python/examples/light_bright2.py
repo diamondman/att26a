@@ -35,7 +35,7 @@ def light_bright2(devname, verbose):
                     mode = 2
                 elif btn == 103:
                     mode = 3
-            except att26a.DriverShuttingDownError as e:
+            except att26a.DriverClosedError as e:
                 break
 
 if __name__ == "__main__":

@@ -19,7 +19,7 @@ def random_noise(devname, verbose):
                 led = random.randint(0, 119)
                 state = random.choice((att26a.LED_OFF, att26a.LED_ON))
                 led_board.set_led_state(state, led)
-            except att26a.DriverShuttingDownError as e:
+            except att26a.DriverClosedError as e:
                 break
 
 if __name__ == "__main__":
