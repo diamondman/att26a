@@ -143,7 +143,7 @@ class ATT26A(object):
         # Terminate the reader thread
         self.__do_recvthread = False
         if self.__recvthread is not None:
-            self.__recvthread.wait(0.5)
+            self.__recvthread.join(2)
 
         # Clear out the queues
         self.__btnq = interruptablequeue.InterruptableQueue(100)
