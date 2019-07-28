@@ -93,7 +93,7 @@ class ATT26A(object):
         verbose (:obj:`bool`, optional): Enable verbose output.
     """
 
-    def __init__(self, devname, *, verbose=False):
+    def __init__(self, dev, *, verbose=False):
         self._verbose = verbose
 
         self.__is_open = True
@@ -102,12 +102,12 @@ class ATT26A(object):
         self.__btnq = None
         self.__retq = None
 
-        try:
-            self.__ser = serial.Serial(devname, baudrate=10752, write_timeout=0.1,
-                                       bytesize=serial.EIGHTBITS, parity=serial.PARITY_ODD,
-                                       stopbits=serial.STOPBITS_ONE)
-        except serial.serialutil.SerialException as e:
-            raise CanNotOpenDeviceError("The 'devname' provided could not be opened: '%s'"%devname)
+        if isinstance(dev, str):
+            self.__ser = ATT26A.openSerialPortByName(dev)
+            print(self.__ser)
+            print(type(self.__ser))
+        else:
+            self.__ser = dev
 
         self.reset()
 
@@ -467,3 +467,22 @@ class ATT26A(object):
     @staticmethod
     def _shift7_right(b):
         return ((b & 0x7E) >> 1) | ((b & 0x01) << 6)
+
+    @staticmethod
+    def openSerialPortByName(devname):
+        try:
+            ser = serial.serial_for_url(
+                devname, baudrate=10752, bytesize=serial.EIGHTBITS,
+                parity=serial.PARITY_ODD, stopbits=serial.STOPBITS_ONE)
+
+            from serial.rfc2217 import Serial as rfc2217Serial
+            if isinstance(ser, rfc2217Serial):
+                print("WARNING: As of pyserial 3.4, rfc2217 adapters do not support write "
+                      "timeouts. This can cause stalling in some error cases.")
+            else:
+                print(ser.write_timeout)
+                ser.write_timeout=0.1
+
+            return ser
+        except serial.serialutil.SerialException as e:
+            raise CanNotOpenDeviceError("The 'devname' provided could not be opened: '%s'"%devname)
