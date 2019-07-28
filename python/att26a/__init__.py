@@ -167,6 +167,7 @@ class ATT26A(object):
                 if self._verbose:
                     print("ATT26A closing due to exception on receiver thread: '%s'" % e)
                 self._close(dojoin=False)
+                break
 
             data = data_raw[0] #TODO: Should check length first?
             try:
