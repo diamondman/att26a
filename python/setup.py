@@ -14,6 +14,8 @@
 import codecs
 import os
 import re
+
+from setuptools import find_packages
 from setuptools import setup
 
 here = os.path.abspath(os.path.dirname(__file__))
@@ -37,7 +39,7 @@ def find_version(*file_paths):
 
 setup(
     name='att26a',
-    version=find_version("att26a", "__init__.py"),
+    version=find_version("src", "att26a", "__init__.py"),
     description='AT&T 26A Direct Extension Selector Console Driver.',
     long_description=read('README.rst'),
     classifiers=[
@@ -47,13 +49,12 @@ setup(
         'Programming Language :: Python :: 3 :: Only',
         'Topic :: Software Development :: Libraries',
         'Topic :: System :: Hardware :: Hardware Drivers',
-        ],
+    ],
     author='Jessy Diamond Exum',
     author_email='jessy.diamondman@gmail.com',
     url='https://github.com/diamondman/att26a',
-    packages=[
-        'att26a'
-        ],
+    packages=find_packages("src"),
+    package_dir={"":"src"},
     platforms='any',
     license='LGPL 2.1',
     install_requires=[
@@ -61,5 +62,5 @@ setup(
         'pep8>=1.5.7',
         'pyflakes>=0.8.1',
         'pyserial>=3.4',
-        ]
+    ],
 )
