@@ -45,7 +45,6 @@ setup(
     classifiers=[
         'Intended Audience :: Developers',
         'License :: OSI Approved :: GNU Lesser General Public License v2 (LGPLv2)',
-        'Operating System :: POSIX',
         'Programming Language :: Python :: 3 :: Only',
         'Topic :: Software Development :: Libraries',
         'Topic :: System :: Hardware :: Hardware Drivers',
