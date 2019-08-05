@@ -7,7 +7,7 @@
 
     AT&T 26A Direct Extension Selector Console Driver.
 
-    :copyright: (c) 2018 by Jessy Diamond Exum.
+    :copyright: (c) 2019 by Jessy Diamond Exum.
     :license: see LICENSE for more details.
 """
 
