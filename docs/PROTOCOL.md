@@ -57,6 +57,19 @@ The encoding and decoding process is a circular one bit shift on a 7 bit integer
 
 **Note:** Bit 7 should always be cleared for both the encoded and decoded form.
 
+### 2.2 Light state
+
+Each LED on the 26A can be in one of four states.
+
+![The four LED states](./images/AT&T_26A_LED_STATES.gif)
+
+* OFF
+* BLINK STEADY
+* BLINK QUICK
+* ON
+
+LED state encoding may be different between message types, so refer to each message type's documentation to see the encoding.
+
 ## 3. Transmissions From the 26A.
 
 The 26A sends several types of messages:
