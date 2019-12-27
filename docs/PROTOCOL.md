@@ -54,7 +54,7 @@ The encoding and decoding process is a circular one bit shift on a 7 bit integer
     # BTN_MESSAGE >> BTN_ID
     # 0b0ABCDEFG  => 0b0GABCDEF
     ((b & 0x7E) >> 1) | ((b & 0x01) << 6)
-    
+
 **Note:** Bit 7 should always be cleared for both the encoded and decoded form.
 
 ## 3. Transmissions From the 26A.
@@ -111,7 +111,7 @@ The `ACK` byte will not be listed in a command message's return type. Expect it 
 
 Read the state of LED `ID`. Only works for LED 100 <= `ID` <= 119 (bottom two rows of LEDs).
 
-Using this command is harder than just storing the values of leds in a local buffer. There is very little reason to use it (or even support it), particularly because it only works for the bottom 20 leds and not the main 100. 
+Using this command is harder than just storing the values of leds in a local buffer. There is very little reason to use it (or even support it), particularly because it only works for the bottom 20 leds and not the main 100.
 
 **Format:** `A520:XX`
 
@@ -213,7 +213,7 @@ Enabling the IO driver after previously disabling it will show any changes made 
 
 #### 4.1.7 Disable IO driver
 
-Disable the LED and button driver if it is currently enabled, otherwise, no effect. 
+Disable the LED and button driver if it is currently enabled, otherwise, no effect.
 
 While the IO driver is disabled, all LEDs will be off, and no button presses will be reported. The state of the IO driver does not effect the ability to set or read LED states, but changes will not appear on the 26A's display until the IO driver is enabled.
 
