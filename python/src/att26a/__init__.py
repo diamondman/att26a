@@ -39,6 +39,7 @@ import threading
 import time
 import queue
 import math
+import logging
 
 from . import interruptablequeue
 
@@ -90,22 +91,21 @@ class ATT26A(object):
 
     Args:
         devname (str): A path to a posix character device.
-        verbose (:obj:`bool`, optional): Enable verbose output.
+        log (:obj:`logging.Logger`, optional): logging object.
     """
 
-    def __init__(self, dev, *, verbose=False):
-        self._verbose = verbose
-
+    def __init__(self, dev, *, log=None):
         self.__is_open = True
         self.__do_recvthread = False
         self.__recvthread = None
         self.__btnq = None
         self.__retq = None
 
+        self._log = logging.getLogger('att26a') if not log else log
+
         if isinstance(dev, str):
             self.__ser = ATT26A.openSerialPortByName(dev)
-            print(self.__ser)
-            print(type(self.__ser))
+            self._log.info("%s (type: %s)", self.__ser, type(self.__ser))
         else:
             self.__ser = dev
 
@@ -164,8 +164,7 @@ class ATT26A(object):
             try:
                 data_raw = self.__ser.read(1) # Blocks
             except serial.serialutil.SerialException as e:
-                if self._verbose:
-                    print("ATT26A closing due to exception on receiver thread: '%s'" % e)
+                self._log.error("ATT26A closing due to exception on receiver thread: '%s'" % e)
                 self._close(dojoin=False)
                 break
 
@@ -176,20 +175,17 @@ class ATT26A(object):
                 elif data == MSG_KA:
                     pass #TODO: maybe detect hardware timeout?
                 elif data == MSG_ACK:
-                    if self._verbose:
-                        print("retdata: " + ':'.join('{:02x}'.format(x) for x in retdata))
+                    self._log.debug("retdata: " + ':'.join('{:02x}'.format(x) for x in retdata))
                     self.__retq.put(bytes(retdata))
                     retdata.clear()
                 else:
                     retdata.append(data)
             except DriverShuttingDownError as e:
-                if self._verbose:
-                    print("Att26A receiver thread terminating due to DriverShuttingDownError")
+                self._log.error("Att26A receiver thread terminating due to DriverShuttingDownError")
                 break
 
     def _handle_button_press(self, id):
-        if self._verbose:
-            print("%s btn %d pressed." % (type(self).__name__, id))
+        self._log.info("%s btn %d pressed." % (type(self).__name__, id))
 
         self.__btnq.put(id)
 
@@ -214,8 +210,7 @@ class ATT26A(object):
             raise ValueError("Message may not contain a byte of value 0xFF.")
 
         outmsg = ATT26A.__prepare_msg_frame(msg)
-        if(self._verbose):
-            print("TX:" + ":".join((hex(b)[2:] for b in outmsg)))
+        self._log.debug("TX:" + ":".join((hex(b)[2:] for b in outmsg)))
 
         try:
             self.__ser.write(outmsg)
@@ -451,13 +446,6 @@ class ATT26A(object):
         return LED_MODES[(ret[0] >> 4) & 3]
 
     @property
-    def verbose(self):
-        return self._verbose
-    @verbose.setter
-    def verbose(self, value):
-        self._verbose = bool(value)
-
-    @property
     def is_open(self):
         return self.__is_open
 
@@ -481,7 +469,6 @@ class ATT26A(object):
                 print("WARNING: As of pyserial 3.4, rfc2217 adapters do not support write "
                       "timeouts. This can cause stalling in some error cases.")
             else:
-                print(ser.write_timeout)
                 ser.write_timeout=0.1
 
             return ser

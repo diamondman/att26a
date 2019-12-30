@@ -4,6 +4,8 @@ from att26a.simulator import Att26aSimBase
 from PyQt5 import QtCore
 from PyQt5 import QtWidgets
 
+import logging
+
 # Parse the ui file once.
 import sys, os.path
 from PyQt5 import uic
@@ -28,7 +30,6 @@ class Att26ASimQt(QtWidgets.QMainWindow):
 
         def on_set_led_state(self, state, ledID):
             self.qtsim.signal_set_led_state.emit(state, ledID)
-            #self.qtsim.on_set_led_state(state, ledID)
 
         def on_set_factory_test_mode_enable(self, enable):
             self.qtsim.on_set_factory_test_mode_enable(enable)
@@ -40,26 +41,26 @@ class Att26ASimQt(QtWidgets.QMainWindow):
             return self.on_get_led_status(ledID)
 
     def on_set_led_range_state(self, start_ledid, states_on_off):
-        print("DATA VALID LOOKING!")
+        self._log.info("DATA VALID LOOKING!")
 
     def on_set_led_state(self, state, ledID):
-        print("Setting led %d's state to %d IN PASS THROUGH"%(ledID, state))
+        self._log.info("Setting led %d's state to %d IN PASS THROUGH"%(ledID, state))
         #mode = LED_MODES.index(state)
         self.leds[ledID].setValue(bool(state))
 
     def on_set_factory_test_mode_enable(self, enable):
-        print("%s factory test" % "Enable" if enable else "Disable")
+        self._log.info("%s factory test" % "Enable" if enable else "Disable")
         self._factory_test = enable
 
     def on_set_IO_enable(self, enable):
-        print("%s IO driver" % "Enable" if enable else "Disable")
+        self._log.info("%s IO driver" % "Enable" if enable else "Disable")
         self._io_enabled = enable
 
     def on_get_led_status(self, ledID):
-        print("Reading led %d state" % ledID)
+        self._log.info("Reading led %d state" % ledID)
         return self.leds[ledID].value()
 
-    def __init__(self, serialdev):
+    def __init__(self, serialdev, log=None):
         super(Att26ASimQt, self).__init__()
         self.ui = Att26aSimUi()
         self.ui.setupUi(self)
@@ -77,6 +78,8 @@ class Att26ASimQt(QtWidgets.QMainWindow):
         self.signal_set_led_state.connect(self.on_set_led_state)
 
         self.__sim = Att26ASimQt.Att26aSimInstrumentor(serialdev, self)
+
+        self._log = logging.getLogger('att26aguisim') if not log else log
 
     @QtCore.pyqtSlot()
     def on_any_btn_press(self):
@@ -106,14 +109,42 @@ def main_bootstrap(serialdev):
 
     sys.exit(run(app, serialdev))
 
-def main():
+def main_api(address="", port=7778, log=None):
     from att26a.serial_adapter import RFC2217SerialAdapter
-    r = RFC2217SerialAdapter()
+    r = RFC2217SerialAdapter(address, port, log)
     main_bootstrap(r)
+
+def main_cli():
+    import argparse
+    from att26a.clihelper import VAction
+
+    parser = argparse.ArgumentParser(description='AT&T 26A graphical simulator')
+    parser.add_argument('--port', type=int, nargs='?', default=7778,
+                        help='Port to host rfc2217 server.')
+    parser.add_argument('--addr', type=str, default="localhost",
+                        help='Address to host rfc2217 server.')
+    parser.add_argument('-v', nargs='?', action=VAction, dest='verbose', default=0,
+                        help="Provide debug information. More than one v supported")
+    args = parser.parse_args()
+
+    logging.basicConfig(level=logging.INFO) # Enable root filter to see serial logs
+    logging.getLogger('RFC2217SerialAdapter').setLevel(logging.INFO)
+
+    if args.verbose >= 2:
+        loglevel = logging.DEBUG
+        logging.basicConfig(level=loglevel)
+    elif args.verbose >= 1:
+        loglevel = logging.INFO
+    else:
+        loglevel = logging.WARNING
+
+    logging.getLogger('att26aguisim').setLevel(loglevel)
+
+    main_api(args.addr, args.port)
 
 def _main_subprocess_bootstrap(q):
     q.put(23)
-    main(None)
+    main_api(port=0)
 
 def start_subprocess():
     import multiprocessing as mp
@@ -124,4 +155,4 @@ def start_subprocess():
     return q.get()
 
 if __name__ == "__main__":
-    main()
+    main_cli()

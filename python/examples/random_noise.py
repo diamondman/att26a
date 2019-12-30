@@ -3,13 +3,13 @@
 import sys
 from os.path import dirname, join
 sys.path.append(join(dirname(__file__), "..")) # Enable importing from parent directory
-import att26a
 
-def random_noise(devname, verbose):
+def random_noise(devname):
+    import att26a
     import random
     import signal
 
-    with att26a.ATT26A(devname, verbose=verbose) as led_board:
+    with att26a.ATT26A(devname) as led_board:
         def signal_handler(sig, frame):
             led_board.close()
         signal.signal(signal.SIGINT, signal_handler)
@@ -23,15 +23,5 @@ def random_noise(devname, verbose):
                 break
 
 if __name__ == "__main__":
-    import argparse
-    parser = argparse.ArgumentParser(description='Light up random leds')
-    parser.add_argument('--verbose', '-v', action='store_true', default=False)
-    parser.add_argument('devname', metavar='dev', type=str,
-                        help='the Serial Device that connects to the AT&T 26A.')
-
-    args = parser.parse_args()
-    try:
-        random_noise(args.devname, args.verbose)
-    except att26a.CanNotOpenDeviceError as e:
-        print("ERROR:", str(e))
-        exit(1)
+    from att26a.clihelper import setup_standard_demo_cli
+    setup_standard_demo_cli('Light up random leds', random_noise)

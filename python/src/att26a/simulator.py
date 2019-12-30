@@ -2,6 +2,7 @@ import collections
 import threading
 import math
 import time
+import logging
 
 LED_OFF = 0x0
 LED_BLINK1 = 0x8
@@ -14,7 +15,7 @@ MSG_KA = 0xFF # Keep Alive
 MSG_ACK = 0xFD # Acknowledge
 
 class Att26aSimBase(object):
-    def __init__(self, serialdev):
+    def __init__(self, serialdev, log=None):
         self.__ser = serialdev
         self.__recvbuff = collections.deque(maxlen=16)
 
@@ -23,6 +24,8 @@ class Att26aSimBase(object):
 
         self.__do_keepalivethread = False
         self.__keepalivethread = None
+
+        self._log = logging.getLogger('att26asim') if not log else log
 
         self.reset()
 
@@ -54,19 +57,18 @@ class Att26aSimBase(object):
             try:
                 data = self.__ser.read(1) # Blocks
             except serial.serialutil.SerialException as e:
-                if self._verbose:
-                    print("ATT26A closing due to exception on receiver thread: '%s'" % e)
+                self._log.error("ATT26A closing due to exception on receiver thread: '%s'" % e)
                 self._close(dojoin=False)
 
             self._rx(data)
 
     def __keepalivethread_func(self):
-        print("Simulator Keepalive Message Thread STARTING")
+        self._log.info("Simulator Keepalive Message Thread STARTING")
         while self.__do_keepalivethread:
             self.__ser.write(b'\xFF')
             time.sleep(0.026)
 
-        print("Simulator Keepalive Message Thread TERMINATING")
+        self._log.info("Simulator Keepalive Message Thread TERMINATING")
 
     @staticmethod
     def _shift7_left(b):
@@ -81,7 +83,6 @@ class Att26aSimBase(object):
         h = 0x7F
         for b in msg[1:-1]:
             h ^= b
-        #print("Expecting %x"%h)
         return h == msg[-1]
 
     def send_btn_press(self, btn_id):
@@ -89,7 +90,6 @@ class Att26aSimBase(object):
 
     def _rx(self, data):
         for b in data:
-            #print("RECV", b)
             self._rx_byte(b)
 
     def _rx_byte(self, b):
@@ -98,7 +98,7 @@ class Att26aSimBase(object):
             if len(self.__recvbuff) >= 2:
                 msg = b"".join(self.__recvbuff)
                 if not Att26aSimBase._check_msg(msg):
-                    print("Message failed verification, DROP!")
+                    self._log.warn("Message failed verification, DROP!")
                 else:
                     self._msg_dispatch(msg[:-1])
         elif b == 0x85 or b == 0xA5:
@@ -108,23 +108,23 @@ class Att26aSimBase(object):
             self.__recvbuff.append(b.to_bytes(1, 'little'))
 
     def _msg_dispatch(self, msg):
-        print("Message:", msg)
+        self._log.debug("Message:", msg)
         if len(msg) < 3:
             self._tx_ack()
             return
         msgcat, msgtype, msgparam = msg[0], msg[1], msg[2:]
 
         if msgcat == 0x85: # WRITE
-            print("Commamd type is WRITE")
+            self._log.debug("Command type is WRITE")
             if msgtype == 0x07: # Set LED range ON/OFF (0-99)
-                print("TRYING TO DO LED RANGE", msgparam, len(msgparam))
+                self._log.debug("TRYING TO DO LED RANGE", msgparam, len(msgparam))
                 if len(msgparam) >= 3:
-                    print("Still trying")
+                    self._log.debug("Still trying")
                     led_id = Att26aSimBase._shift7_right(msgparam[0])
                     led_count = msgparam[1]
                     led_data = msgparam[2:]
-                    print(led_id, led_count, led_data)
-                    print("CHECKING", 0 <= led_id <= 99,
+                    self._log.debug(led_id, led_count, led_data)
+                    self._log.debug("CHECKING", 0 <= led_id <= 99,
                           (1 <= led_count <= 70 or 72 <= led_count <= 76),
                           math.ceil(led_count/7.00) == len(led_data))
                     if 0 <= led_id <= 99 and \
@@ -133,10 +133,10 @@ class Att26aSimBase(object):
                         state_array = []
                         for d in led_data:
                             if d & 0x80:
-                                print("Invalid set led range data byte %x"%d)
+                                self._log.debug("Invalid set led range data byte %x"%d)
                                 break
                             for bit in range(6,-1,-1):
-                                print("LEDCOUNT", led_count)
+                                self._log.debug("LEDCOUNT", led_count)
                                 if led_count == -1: break
                                 led_count -= 1;
                                 state_array.append(bool((d >> bit) & 1))
@@ -165,9 +165,9 @@ class Att26aSimBase(object):
                 if 100 <= led_id <= 119:
                     led_state = self.on_get_led_status(led_id) & 0x03
                     need_2nd_byte = led_id > 107
-                    print("Need 2nd byte: %s"%\
-                          ("YES" if need_2nd_byte else "NO"))
-                    print("LED STATE:", led_state)
+                    self._log.debug("Need 2nd byte: %s"%\
+                                    ("YES" if need_2nd_byte else "NO"))
+                    self._log.debug("LED STATE:", led_state)
                     data_out = bytes(0x80 | (led_state << 4) | \
                                      (need_2nd_byte << 3) |\
                                      (0 if need_2nd_byte else ((led_id-100) & 0x07)))
@@ -179,7 +179,7 @@ class Att26aSimBase(object):
                     self.__ser.write(data_out)
                     return
             else:
-                print("UNKNOWN COMMAND CATEGORY")
+                self._log.warn("UNKNOWN COMMAND CATEGORY")
 
         self._tx_ack()
 
@@ -188,19 +188,19 @@ class Att26aSimBase(object):
 
 
     def on_set_led_range_state(self, start_ledid, states_on_off):
-        print("Setting led range starting at %d:" % start_ledid, states_on_off)
+        self._log.info("Setting led range starting at %d:" % start_ledid, states_on_off)
 
     def on_set_led_state(self, state, ledID):
-        print("Setting led %d's state to %d"%(ledID, state))
+        self._log.info("Setting led %d's state to %d"%(ledID, state))
 
     def on_set_factory_test_mode_enable(self, enable):
-        print("%s factory test" % "Enable" if enable else "Disable")
+        self._log.info("%s factory test" % "Enable" if enable else "Disable")
 
     def on_set_IO_enable(self, enable):
-        print("%s IO driver" % "Enable" if enable else "Disable")
+        self._log.info("%s IO driver" % "Enable" if enable else "Disable")
 
     def on_get_led_status(self, ledID):
-        print("Reading led %d state" % ledID)
+        self._log.info("Reading led %d state" % ledID)
         return False
 
 
@@ -213,23 +213,22 @@ class Att26aSim(Att26aSimBase):
         self._io_enabled = True
 
     def on_set_led_range_state(self, start_ledid, states_on_off):
-        print("Setting led range starting at %d: (%d)" % (start_ledid, len(states_on_off)),
-              states_on_off)
+        self._log.info("Setting led range starting at %d: (%d)" % (start_ledid, len(states_on_off)), states_on_off)
 
     def on_set_led_state(self, state, ledID):
-        print("Setting led %d's state to %d"%(ledID, state))
+        self._log.info("Setting led %d's state to %d"%(ledID, state))
         self.__ledstates[ledID] = LED_MODES.index(state)
 
     def on_set_factory_test_mode_enable(self, enable):
-        print("%s factory test" % "Enable" if enable else "Disable")
+        self._log.info("%s factory test" % "Enable" if enable else "Disable")
         self._factory_test = enable
 
     def on_set_IO_enable(self, enable):
-        print("%s IO driver" % "Enable" if enable else "Disable")
+        self._log.info("%s IO driver" % "Enable" if enable else "Disable")
         self._io_enabled = enable
 
     def on_get_led_status(self, ledID):
-        print("Reading led %d state" % ledID)
+        self._log.info("Reading led %d state" % ledID)
         return self.__ledstates[ledID]
 
 class Att26aSimEventTester(Att26aSimBase):

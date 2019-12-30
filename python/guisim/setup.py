@@ -54,7 +54,7 @@ setup(
     package_dir={"":"src"},
     include_package_data=True,
     entry_points = {
-        'console_scripts': ['att26aguisim=att26aguisim:main'],
+        'console_scripts': ['att26aguisim=att26aguisim:main_cli'],
     },
     platforms='any',
     license='MIT',

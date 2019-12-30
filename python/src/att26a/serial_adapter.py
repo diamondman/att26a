@@ -122,10 +122,9 @@ class RFC2217SerialAdapter(object):
                 if self.realconn.socket:
                     self.realconn.socket.sendall(data)
 
-    def __init__(self, address="", port=7778, debug=False):
+    def __init__(self, address="", port=7778, log=None):
         self._address = address
         self._port = port
-        self._debug = debug
         self._is_open = False
 
         self._cts = False
@@ -147,7 +146,8 @@ class RFC2217SerialAdapter(object):
         self._write_lock = threading.Lock()
         self.rfc2217 = None
         self.__reader = interruptablequeue.InterruptableQueue()
-        self.log = logging.getLogger('RFC2217SerialAdapter')
+
+        self._log = logging.getLogger('RFC2217SerialAdapter') if not log else log
 
         self.thread_server = None
 
@@ -179,20 +179,20 @@ class RFC2217SerialAdapter(object):
         srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         srv.bind((self._address, self._port))
         srv.listen(1)
-        logging.info("TCP/IP port: {}".format(self._port))
+        self._log.info("TCP/IP port: {}".format(self._port))
 
         while self._is_open:
             try:
                 self.socket, addr = srv.accept()
                 if not self._is_open:
-                    print("breaking out of accept")
+                    self._log.debug("breaking out of accept")
                     break
-                logging.info('Connected by {}:{}'.format(addr[0], addr[1]))
+                self._log.info('Connected by {}:{}'.format(addr[0], addr[1]))
                 self.socket.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
                 self.rfc2217 = serial.rfc2217.PortManager(
                     RFC2217SerialAdapter.FakePort(self),
                     RFC2217SerialAdapter.FakeConnection(self),
-                    logger=logging.getLogger('rfc2217.server') if self._debug else None
+                    logger=logging.getLogger('rfc2217.server')
                 )
                 self.connection_alive = True
 
@@ -201,23 +201,23 @@ class RFC2217SerialAdapter(object):
                         try:
                             data = self.socket.recv(1024)
                             if not data:
-                                print("Breaking out of recv")
+                                self._log.debug("Breaking out of recv")
                                 break
                             data_in = b''.join(self.rfc2217.filter(data))
                             for b in data_in:
                                 self.__reader.put(b)
                         except socket.error as msg:
-                            self.log.error('{}'.format(msg))
+                            self._log.error('{}'.format(msg))
                             break
                 finally:
-                    logging.info('Disconnected')
+                    self._log.info('Disconnected')
                     self.connection_alive = True
                     self.socket.close()
                     self.socket = None
             except socket.error as msg:
-                logging.error(str(msg))
+                self._log.error(str(msg))
 
-        print("server_thread dead")
+        self._log.debug("server_thread dead")
 
     def write(self, data):
         if not self._is_open: raise Exception("Closed")
