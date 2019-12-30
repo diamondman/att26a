@@ -31,13 +31,14 @@ palette_off_on.setColor(QtGui.QPalette.Highlight, QtGui.QColor(QtCore.Qt.red))
 
 class Att26ASimQt(QtWidgets.QMainWindow):
     signal_set_led_state = QtCore.pyqtSignal(int, int)
+    signal_set_led_range_state = QtCore.pyqtSignal(int, list)
     class Att26aSimInstrumentor(Att26aSimBase):
         def __init__(self, serialdev, qtsim):
             super().__init__(serialdev)
             self.qtsim = qtsim
 
         def on_set_led_range_state(self, start_ledid, states_on_off):
-            self.qtsim.on_set_led_range_state(start_ledid, states_on_off)
+            self.qtsim.signal_set_led_range_state.emit(start_ledid, states_on_off)
 
         def on_set_led_state(self, state, ledID):
             self.qtsim.signal_set_led_state.emit(state, ledID)
@@ -52,7 +53,11 @@ class Att26ASimQt(QtWidgets.QMainWindow):
             return self.on_get_led_status(ledID)
 
     def on_set_led_range_state(self, start_ledid, states_on_off):
-        self._log.info("DATA VALID LOOKING!")
+        self._log.info("Setting %d LEDs starting at %d"%(len(states_on_off), start_ledid))
+        for i, state in enumerate(states_on_off):
+            led = self.leds[(start_ledid + i) % 100]
+            led.setPalette(palette_off_on)
+            led.setValue(state)
 
     def on_set_led_state(self, state, ledID):
         self._log.info("Setting led %d's state to %d IN PASS THROUGH"%(ledID, state))
@@ -98,6 +103,7 @@ class Att26ASimQt(QtWidgets.QMainWindow):
         self._io_enabled = True
 
         self.signal_set_led_state.connect(self.on_set_led_state)
+        self.signal_set_led_range_state.connect(self.on_set_led_range_state)
 
         self.__sim = Att26ASimQt.Att26aSimInstrumentor(serialdev, self)
 
