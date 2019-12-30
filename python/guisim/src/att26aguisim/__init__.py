@@ -1,8 +1,10 @@
 #! /usr/bin/env python3
+import att26a
 from att26a.simulator import Att26aSimBase
 
 from PyQt5 import QtCore
 from PyQt5 import QtWidgets
+from PyQt5 import QtGui
 
 import logging
 
@@ -17,6 +19,15 @@ del sys.path[-1] # Remove the now unnecessary path entry
 __title__ = 'att26aguisim'
 __version__ = '0.0.1'
 __author__ = 'Jessy Diamond Exum'
+
+palette_blink1 = QtGui.QPalette()
+palette_blink1.setColor(QtGui.QPalette.Highlight, QtGui.QColor(QtCore.Qt.blue))
+
+palette_blink2 = QtGui.QPalette()
+palette_blink2.setColor(QtGui.QPalette.Highlight, QtGui.QColor(QtCore.Qt.green))
+
+palette_off_on = QtGui.QPalette()
+palette_off_on.setColor(QtGui.QPalette.Highlight, QtGui.QColor(QtCore.Qt.red))
 
 class Att26ASimQt(QtWidgets.QMainWindow):
     signal_set_led_state = QtCore.pyqtSignal(int, int)
@@ -45,8 +56,19 @@ class Att26ASimQt(QtWidgets.QMainWindow):
 
     def on_set_led_state(self, state, ledID):
         self._log.info("Setting led %d's state to %d IN PASS THROUGH"%(ledID, state))
-        #mode = LED_MODES.index(state)
-        self.leds[ledID].setValue(bool(state))
+        led = self.leds[ledID]
+        ison = True
+        if state == att26a.LED_ON:
+            led.setPalette(palette_off_on)
+        elif state == att26a.LED_BLINK1:
+            led.setPalette(palette_blink1)
+        elif state == att26a.LED_BLINK2:
+            led.setPalette(palette_blink2)
+        else:
+            led.setPalette(palette_off_on)
+            ison = False
+
+        led.setValue(ison)
 
     def on_set_factory_test_mode_enable(self, enable):
         self._log.info("%s factory test" % "Enable" if enable else "Disable")
